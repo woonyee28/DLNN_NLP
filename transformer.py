@@ -88,26 +88,41 @@ class EncoderLayer(nn.Module):
         x = self.norm2(x + self.dropout(ff_output))
         return x
     
-class DecoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads, d_ff, dropout):
-        super(DecoderLayer, self).__init__()
-        self.self_attn = MultiHeadAttention(d_model, num_heads)
-        self.cross_attn = MultiHeadAttention(d_model, num_heads)
-        self.feed_forward = PositionWiseFeedForward(d_model, d_ff)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm3 = nn.LayerNorm(d_model)
+
+class TransformerClassifier(nn.Module):
+    def __init__(self, vocab_size, num_classes, d_model, num_heads, num_layers, d_ff, max_seq_length, dropout):
+        super(TransformerClassifier, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
+
+        self.encoder_layers = nn.ModuleList([
+            EncoderLayer(d_model, num_heads, d_ff, dropout) 
+            for _ in range(num_layers)
+        ])
+        
+        self.pool = nn.AdaptiveAvgPool1d(1)  
+        self.classifier = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model, num_classes)
+        )
         self.dropout = nn.Dropout(dropout)
         
-    def forward(self, x, enc_output, src_mask, tgt_mask):
-        attn_output = self.self_attn(x, x, x, tgt_mask)
-        x = self.norm1(x + self.dropout(attn_output))
-        attn_output = self.cross_attn(x, enc_output, enc_output, src_mask)
-        x = self.norm2(x + self.dropout(attn_output))
-        ff_output = self.feed_forward(x)
-        x = self.norm3(x + self.dropout(ff_output))
-        return x
+    def generate_mask(self, src):
+        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        return src_mask
+        
+    def forward(self, src):
+        src_mask = self.generate_mask(src)
+        src_embedded = self.dropout(self.positional_encoding(self.embedding(src)))
+        enc_output = src_embedded
+        for enc_layer in self.encoder_layers:
+            enc_output = enc_layer(enc_output, src_mask)
 
+        pooled = self.pool(enc_output.transpose(1, 2)).squeeze(2)
+        output = self.classifier(pooled)
+        return output
 
 
 
