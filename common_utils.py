@@ -11,8 +11,9 @@ import numpy as np
 
 SAVE_DIR = "./result/"
 VOCAB_PATH = os.path.join(SAVE_DIR, "vocab.json")
-EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding.json")
+EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding_matrix.npy")
 EMBEDDING_DIM = 100
+WORD2IDX_PATH = os.path.join(SAVE_DIR, "word2idx.json")
 
 def tokenize(dataset: Dataset, save=False) -> set:
     """
@@ -65,33 +66,36 @@ def load_glove_embeddings() -> dict:
 
 def create_embedding_matrix(vocab, save=False) -> dict:
     glove_dict = load_glove_embeddings()
+    vocab = vocab.union({'<PAD>', '<UNK>'})
     embedding_matrix = np.zeros((len(vocab), EMBEDDING_DIM))
 
     missing_words = []
     for word in vocab:
-        if word not in glove_dict:
+        if word not in glove_dict and word not in {'<PAD>', '<UNK>'}:
             missing_words.append(word)
     missing_words_embedding = np.mean(list(glove_dict.values()), axis=0)
 
-    word2idx = {word: idx for idx, word in enumerate(sorted(vocab))}
+    special_tokens = ['<PAD>', '<UNK>']
+    regular_words = sorted([word for word in vocab if word not in special_tokens])
+    all_words = special_tokens + regular_words
+    word2idx = {word: idx for idx, word in enumerate(all_words)}
     for word, idx in word2idx.items():
-        if word in missing_words:
+        if word == '<PAD>':
+            embedding_matrix[idx] = np.zeros(EMBEDDING_DIM)
+        elif word == '<UNK>' or word in missing_words:
             embedding_matrix[idx] = missing_words_embedding
         else:
             embedding_matrix[idx] = glove_dict[word]
     
-    word_to_embedding = {}
-    for word, idx in word2idx.items():  
-        embedding = embedding_matrix[idx].tolist()
-        word_to_embedding[word] = embedding
-    
     if save:
-        with open(EMBEDDING_PATH, "w", encoding="utf-8") as f:
-            json.dump(word_to_embedding, f, ensure_ascii=False, indent=4)
+        np.save(EMBEDDING_PATH, embedding_matrix)
+        print(f"Embedding Matrix saved to {EMBEDDING_PATH}")
+        
+        with open(WORD2IDX_PATH, "w", encoding="utf-8") as f:
+            json.dump(word2idx, f, ensure_ascii=False, indent=4)
+        print(f"Word to Index mapping saved to {WORD2IDX_PATH}")
 
-        print(f"Word to Embeddings saved to {EMBEDDING_PATH}")
-
-    return word_to_embedding
+    return embedding_matrix, word2idx
 
 
 def create_train_validation_test(dataset: Dataset):
