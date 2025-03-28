@@ -104,7 +104,7 @@ def create_embedding_matrix(vocab, save=False) -> dict:
 
 
 def create_train_validation_test(dataset: Dataset):
-    train_test = dataset.train_test_split(test_size=0.2, seed=42)
+    train_test = dataset.train_test_split(test_size=0.1, seed=42)
     train_val = train_test['train'].train_test_split(test_size=0.125, seed=42)  # 0.125 * 0.8 = 0.1
 
     dataset_dict = {
