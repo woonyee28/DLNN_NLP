@@ -2,89 +2,35 @@ import json
 import os
 import random
 
-from datasets import Dataset
+from datasets import Dataset, load_dataset
+import nltk
 import torch
 import numpy as np
-from transformers import BertTokenizer, BertModel
+
 
 SAVE_DIR = "./result/"
 VOCAB_PATH = os.path.join(SAVE_DIR, "vocab.json")
-EMBEDDINGS_PATH = os.path.join(SAVE_DIR, "embeddings.json")
-EMBEDDING_BATCH_SIZE = 16
-MAX_LENGTH = 512
+EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding.json")
+EMBEDDING_DIM = 100
 
-def tokenize(dataset: Dataset, save=False) -> list:
+def tokenize(dataset: Dataset, save=False) -> set:
     """
-    Tokenize the text into tokens using Bert Tokenizer
+    Tokenize the text into tokens using nltk
     """
-    tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
     vocab = set()
-    all_tensors = []
 
     for example in dataset:
-        encoded = tokenizer(
-            example["text"], 
-            return_tensors='pt',
-            padding='max_length',
-            max_length=MAX_LENGTH,
-            truncation=True
-        )
-        all_tensors.append({
-            'input_ids': encoded['input_ids'],
-            'attention_mask': encoded['attention_mask']
-        })
-
-        token_ids = encoded['input_ids'][0].tolist()
-        vocab.update(token_ids)
+        tokens = nltk.word_tokenize(example["text"])
+        vocab.update(tokens)
 
     print(f"Vocabulary size: {len(vocab)}")
-    print(f"Number of tokenized examples: {len(all_tensors)}")
 
     if save:
-        os.makedirs(os.path.dirname(VOCAB_PATH), exist_ok=True)
-
-        vocab_dict = {
-            token_id: tokenizer.convert_ids_to_tokens([token_id])[0] 
-            for token_id in vocab
-        }
-
         with open(VOCAB_PATH, "w", encoding="utf-8") as f:
-            json.dump(vocab_dict, f, ensure_ascii=False, indent=4)
+            json.dump(list(vocab), f, ensure_ascii=False, indent=4)
 
         print(f"Vocabulary saved to {VOCAB_PATH}")
-    return all_tensors
-
-def create_embeddings(tokens: list, save=False) -> list:
-    """
-    Convert the tokens to embeddings using Bert Model
-    """
-    model = BertModel.from_pretrained("bert-base-cased")
-    embeddings = []
-    model.eval()
-    total_tokens = len(tokens)
-
-    with torch.no_grad():
-        for i in range(0, total_tokens, EMBEDDING_BATCH_SIZE):
-            batch_end = min(total_tokens, i + EMBEDDING_BATCH_SIZE)
-            current_batch = tokens[i:batch_end]
-            print(f"Processing batch {i//EMBEDDING_BATCH_SIZE + 1}/{(total_tokens + EMBEDDING_BATCH_SIZE - 1)//EMBEDDING_BATCH_SIZE} "
-                  f"(tokens {i+1}-{batch_end}/{total_tokens})")
-            batch_input_ids = torch.cat([item['input_ids'] for item in current_batch], dim=0)
-            batch_attention_mask = torch.cat([item['attention_mask'] for item in current_batch], dim=0)
-            
-            batch_outputs = model(input_ids=batch_input_ids, attention_mask=batch_attention_mask)
-
-            for j in range(len(current_batch)):
-                example_output = batch_outputs[j:j+1]
-                embeddings.append(example_output)
-    
-    if save:
-        os.makedirs(os.path.dirname(EMBEDDINGS_PATH), exist_ok=True)
-        with open(EMBEDDINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(embeddings, f, ensure_ascii=False, indent=4)
-        
-        print(f"Embeddings saved to {EMBEDDINGS_PATH}")
-    return embeddings
+    return vocab
 
 
 def set_seed(seed=0):
@@ -96,5 +42,54 @@ def set_seed(seed=0):
     np.random.seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
+
     
+def load_glove_embeddings() -> dict:
+    """
+    Load GloVe embeddings
+    """
+    glove_dict = {}
+    word_embedding_glove = load_dataset("SLU-CSCI4750/glove.6B.100d.txt")
+    word_embedding_glove = word_embedding_glove["train"]
+
+    for example in word_embedding_glove:
+        split_line = example["text"].strip().split()
+        word = split_line[0]
+        vector = np.array(split_line[1:], dtype="float32")
+        glove_dict[word] = vector
+
+    print(f"Total GloVe words loaded: {len(glove_dict)}")
+    return glove_dict
+
+
+def create_embedding_matrix(vocab, save=False) -> dict:
+    glove_dict = load_glove_embeddings()
+    embedding_matrix = np.zeros((len(vocab), EMBEDDING_DIM))
+
+    missing_words = []
+    for word in vocab:
+        if word not in glove_dict:
+            missing_words.append(word)
+    missing_words_embedding = np.mean(list(glove_dict.values()), axis=0)
+
+    word2idx = {word: idx for idx, word in enumerate(sorted(vocab))}
+    for word, idx in word2idx.items():
+        if word in missing_words:
+            embedding_matrix[idx] = missing_words_embedding
+        else:
+            embedding_matrix[idx] = glove_dict[word]
+    
+    word_to_embedding = {}
+    for word, idx in word2idx.items():  
+        embedding = embedding_matrix[idx].tolist()
+        word_to_embedding[word] = embedding
+    
+    if save:
+        with open(EMBEDDING_PATH, "w", encoding="utf-8") as f:
+            json.dump(word_to_embedding, f, ensure_ascii=False, indent=4)
+
+        print(f"Word to Embeddings saved to {EMBEDDING_PATH}")
+
+    return word_to_embedding
+
 
