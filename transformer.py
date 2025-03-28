@@ -35,12 +35,12 @@ class MultiHeadAttention(nn.Module):
         # view will combine the last 2 dimention to form self.d_model where self.d_model = num_heads × d_k
         return x.transpose(1, 2).contiguous().view(batch_size, seq_length, self.d_model)
     
-    def forward(self, Q, K, V, mask=None):
+    def forward(self, Q, K, V):
         Q = self.split_heads(self.W_q(Q))
         K = self.split_heads(self.W_k(K))
         V = self.split_heads(self.W_v(V))
         
-        attn_output = self.scaled_dot_product_attention(Q, K, V, mask)
+        attn_output = self.scaled_dot_product_attention(Q, K, V)
         output = self.W_o(self.combine_heads(attn_output))
         return output
     
@@ -81,8 +81,8 @@ class EncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
         
-    def forward(self, x, mask):
-        attn_output = self.self_attn(x, x, x, mask)
+    def forward(self, x):
+        attn_output = self.self_attn(x, x, x)
         x = self.norm1(x + self.dropout(attn_output))
         ff_output = self.feed_forward(x)
         x = self.norm2(x + self.dropout(ff_output))
@@ -109,16 +109,11 @@ class TransformerClassifierMHA(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
         
-    def generate_mask(self, src):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        return src_mask
-        
     def forward(self, src):
-        src_mask = self.generate_mask(src)
         src_embedded = self.dropout(self.positional_encoding(self.embedding(src)))
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
-            enc_output = enc_layer(enc_output, src_mask)
+            enc_output = enc_layer(enc_output)
 
         pooled = self.pool(enc_output.transpose(1, 2)).squeeze(2)
         output = self.classifier(pooled)
