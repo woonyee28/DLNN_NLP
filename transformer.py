@@ -50,9 +50,27 @@ class PositionWiseFeedForward(nn.Module):
         self.fc1 = nn.Linear(d_model, d_ff)
         self.fc2 = nn.Linear(d_ff, d_model)
         self.relu = nn.ReLU()
-        
+
     def forward(self, x):
         return self.fc2(self.relu(self.fc1(x)))
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_seq_length, dropout: float = 0.1):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_seq_length, d_model)
+        position = torch.arrange(0, max_seq_length, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        self.register_buffer('pe', pe.unsqueeze(0))
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
 
 
 
