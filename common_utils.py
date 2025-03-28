@@ -14,6 +14,7 @@ VOCAB_PATH = os.path.join(SAVE_DIR, "vocab.json")
 EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding_matrix.npy")
 EMBEDDING_DIM = 100
 WORD2IDX_PATH = os.path.join(SAVE_DIR, "word2idx.json")
+MAX_SEQ_LENGTH = 512
 
 def tokenize(dataset: Dataset, save=False) -> set:
     """
