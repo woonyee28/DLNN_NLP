@@ -89,9 +89,9 @@ class EncoderLayer(nn.Module):
         return x
     
 
-class TransformerClassifier(nn.Module):
+class TransformerClassifierMHA(nn.Module):
     def __init__(self, vocab_size, num_classes, d_model, num_heads, num_layers, d_ff, max_seq_length, dropout):
-        super(TransformerClassifier, self).__init__()
+        super(TransformerClassifierMHA, self).__init__()
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
 
