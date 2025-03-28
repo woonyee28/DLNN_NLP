@@ -2,10 +2,11 @@ import json
 import os
 import random
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, load_dataset, DatasetDict
 import nltk
 import torch
 import numpy as np
+
 
 
 SAVE_DIR = "./result/"
@@ -93,3 +94,18 @@ def create_embedding_matrix(vocab, save=False) -> dict:
     return word_to_embedding
 
 
+def create_train_validation_test(dataset: Dataset):
+    train_test = dataset.train_test_split(test_size=0.2, seed=42)
+    train_val = train_test['train'].train_test_split(test_size=0.125, seed=42)  # 0.125 * 0.8 = 0.1
+
+    dataset_dict = {
+        'train': train_val['train'],
+        'validation': train_val['test'],
+        'test': train_test['test']
+    }
+
+    print(f"Train size: {len(train_val['train'])}")
+    print(f"Validation size: {len(train_val['test'])}")
+    print(f"Test size: {len(train_test['test'])}")
+
+    return dataset_dict
