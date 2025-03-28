@@ -10,6 +10,7 @@ import numpy as np
 
 SAVE_DIR = "./result/"
 VOCAB_PATH = os.path.join(SAVE_DIR, "vocab.json")
+EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding.json")
 EMBEDDING_DIM = 100
 
 def tokenize(dataset: Dataset, save=False) -> set:
@@ -61,7 +62,7 @@ def load_glove_embeddings() -> dict:
     return glove_dict
 
 
-def create_embedding_matrix(vocab) -> list:
+def create_embedding_matrix(vocab, save=False) -> dict:
     glove_dict = load_glove_embeddings()
     embedding_matrix = np.zeros((len(vocab), EMBEDDING_DIM))
 
@@ -77,7 +78,18 @@ def create_embedding_matrix(vocab) -> list:
             embedding_matrix[idx] = missing_words_embedding
         else:
             embedding_matrix[idx] = glove_dict[word]
+    
+    word_to_embedding = {}
+    for word, idx in word2idx.items():  
+        embedding = embedding_matrix[idx].tolist()
+        word_to_embedding[word] = embedding
+    
+    if save:
+        with open(EMBEDDING_PATH, "w", encoding="utf-8") as f:
+            json.dump(word_to_embedding, f, ensure_ascii=False, indent=4)
 
-    return embedding_matrix
+        print(f"Word to Embeddings saved to {EMBEDDING_PATH}")
+
+    return word_to_embedding
 
 
