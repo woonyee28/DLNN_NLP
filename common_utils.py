@@ -6,6 +6,7 @@ from datasets import Dataset, load_dataset, DatasetDict
 import nltk
 import torch
 import numpy as np
+from torch.utils.data import DataLoader, TensorDataset
 
 
 
@@ -14,7 +15,7 @@ VOCAB_PATH = os.path.join(SAVE_DIR, "vocab.json")
 EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding_matrix.npy")
 EMBEDDING_DIM = 100
 WORD2IDX_PATH = os.path.join(SAVE_DIR, "word2idx.json")
-MAX_SEQ_LENGTH = 512
+MAX_SEQ_LENGTH = 100
 
 def tokenize(dataset: Dataset, save=False) -> set:
     """
@@ -66,6 +67,9 @@ def load_glove_embeddings() -> dict:
 
 
 def create_embedding_matrix(vocab, save=False) -> dict:
+    """
+    Create embedding matrix for the vocabulary, include PAD and UNK too
+    """
     glove_dict = load_glove_embeddings()
     vocab = vocab.union({'<PAD>', '<UNK>'})
     embedding_matrix = np.zeros((len(vocab), EMBEDDING_DIM))
@@ -114,3 +118,49 @@ def create_train_validation_test(dataset: Dataset):
     print(f"Test size: {len(train_test['test'])}")
 
     return dataset_dict
+
+def create_dataloaders(dataset_dict, encoded_labels_dict, word2idx, batch_size=32, max_seq_length=100):
+    """
+    Create PyTorch DataLoaders from the dataset dictionary with pre-encoded labels.
+    """
+    def text_to_indices(text, max_length=max_seq_length):
+        tokens = nltk.word_tokenize(text.lower())
+        indices = []
+        for token in tokens[:max_length]:
+            if token in word2idx:
+                indices.append(word2idx[token])
+            else:
+                indices.append(word2idx['<UNK>'])
+
+        if len(indices) < max_length:
+            indices += [word2idx['<PAD>']] * (max_length - len(indices))
+
+        return indices[:max_length]  
+    
+    dataloaders_dict = {}
+    
+    for split in ['train', 'validation', 'test']:
+        input_ids = torch.tensor([
+            text_to_indices(example["text"], max_seq_length) 
+            for example in dataset_dict[split]
+        ], dtype=torch.long)
+        
+        labels = torch.tensor(encoded_labels_dict[split], dtype=torch.long)
+        
+        tensor_dataset = TensorDataset(input_ids, labels)
+        
+        shuffle = (split == 'train')  # Only shuffle training data
+        dataloader = DataLoader(
+            tensor_dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=2,
+            pin_memory=torch.cuda.is_available()
+        )
+        dataloaders_dict[split] = dataloader
+    
+    print(f"Created DataLoaders with {len(dataloaders_dict['train'])} training batches, "
+          f"{len(dataloaders_dict['validation'])} validation batches, and "
+          f"{len(dataloaders_dict['test'])} test batches.")
+    
+    return dataloaders_dict
