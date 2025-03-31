@@ -350,3 +350,104 @@ class TransformerClassifierGQA(nn.Module):
         pooled = self.pool(enc_output.transpose(1, 2)).squeeze(2)
         output = self.classifier(pooled)
         return output
+    
+
+########################################## MultiHead Latent Attention ##################################################
+
+class MultiheadLatentAttention(nn.Module):
+    def __init__(self, d_model, num_heads, latent_dim=576):
+        super(MultiheadLatentAttention, self).__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.latent_dim = latent_dim
+        
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_uk = nn.Linear(d_model, latent_dim)
+        
+        # key-value latent
+        self.W_dkv = nn.Linear(d_model, latent_dim)
+
+        self.W_o = nn.Linear(latent_dim, d_model)
+        self.scale = math.sqrt(self.d_k)
+    
+    def forward(self, x, mask=None):
+        # key & value latents (L_KV)
+        L_kv = self.W_dkv(x)  # [batch_size, seq_length, latent_dim]
+        
+        # project queries to latent space - simulating X(W_Q*W_UK^T)
+        q_projected = self.W_q(x) 
+        queries_projected = self.W_uk(q_projected)  # [batch_size, seq_length, latent_dim]
+        
+        # transpose L_KV for attention computation
+        L_kv_t = L_kv.transpose(1, 2) 
+        
+        # Compute attention scores: Q*K^T / sqrt(d_k)
+        attn_scores = torch.matmul(queries_projected, L_kv_t) / self.scale  # [batch_size, seq_length, seq_length]
+        
+        if mask is not None:
+            attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
+        
+        attn_weights = torch.softmax(attn_scores, dim=-1)  # [batch_size, seq_length, seq_length]
+        
+        weighted_latents = torch.matmul(attn_weights, L_kv)  # [batch_size, seq_length, latent_dim]
+        
+        output = self.W_o(weighted_latents)  # [batch_size, seq_length, d_model]
+        
+        return output
+    
+
+class EncoderLayerMLA(nn.Module):
+    def __init__(self, d_model, num_heads, d_ff, latent_dim, dropout):
+        super(EncoderLayerMLA, self).__init__()
+        self.self_attn = MultiheadLatentAttention(d_model, num_heads, latent_dim)
+        self.feed_forward = PositionWiseFeedForward(d_model, d_ff)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x, mask=None):
+        attn_output = self.self_attn(x, x, x, mask)
+        x = self.norm1(x + self.dropout(attn_output))
+        ff_output = self.feed_forward(x)
+        x = self.norm2(x + self.dropout(ff_output))
+        return x
+    
+
+class TransformerClassifierMLA(nn.Module):
+    def __init__(self, vocab_size, num_classes, d_model, num_heads, num_layers, d_ff, max_seq_length, latent_dim, dropout):
+        super(TransformerClassifierMLA, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
+
+        self.encoder_layers = nn.ModuleList([
+            EncoderLayerGQA(d_model, num_heads, d_ff, latent_dim, dropout) 
+            for _ in range(num_layers)
+        ])
+        
+        self.pool = nn.AdaptiveAvgPool1d(1)  
+        self.classifier = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model, num_classes)
+        )
+        self.dropout = nn.Dropout(dropout)
+        
+    def generate_mask(self, src):
+        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
+        return src_mask
+        
+    def forward(self, src):
+        src_mask = self.generate_mask(src)
+        src_embedded = self.dropout(self.positional_encoding(self.embedding(src)))
+        enc_output = src_embedded
+        for enc_layer in self.encoder_layers:
+            enc_output = enc_layer(enc_output, src_mask) 
+        
+        pooled = self.pool(enc_output.transpose(1, 2)).squeeze(2)
+        output = self.classifier(pooled)
+        return output
+    
