@@ -16,6 +16,7 @@ EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding_matrix.npy")
 EMBEDDING_DIM = 100
 WORD2IDX_PATH = os.path.join(SAVE_DIR, "word2idx.json")
 MAX_SEQ_LENGTH = 100
+BATCH_SIZE = 32
 
 def tokenize(dataset: Dataset, save=False) -> set:
     """
@@ -119,7 +120,7 @@ def create_train_validation_test(dataset: Dataset):
 
     return dataset_dict
 
-def create_dataloaders(dataset_dict, encoded_labels_dict, word2idx, batch_size=32, max_seq_length=100):
+def create_dataloaders(dataset_dict, encoded_labels_dict, word2idx, batch_size=BATCH_SIZE, max_seq_length=100):
     """
     Create PyTorch DataLoaders from the dataset dictionary with pre-encoded labels.
     """
