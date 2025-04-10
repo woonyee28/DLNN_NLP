@@ -167,13 +167,12 @@ class MultiQueryAttention(nn.Module):
         return x.transpose(1, 2).contiguous().view(batch_size, seq_length, self.d_model)
     
     def forward(self, Q, K, V, mask=None):
-        batch_size = Q.size(0)
         Q = self.split_heads(self.W_q(Q))
         K = self.W_k(K)
         V = self.W_v(V)
 
-        K = K.unsqueeze(1).expand(batch_size, self.num_heads, MAX_SEQ_LENGTH, self.d_k)  
-        V = V.unsqueeze(1).expand(batch_size, self.num_heads, MAX_SEQ_LENGTH, self.d_k) 
+        K = K.unsqueeze(1).expand(BATCH_SIZE, self.num_heads, MAX_SEQ_LENGTH, self.d_k)  
+        V = V.unsqueeze(1).expand(BATCH_SIZE, self.num_heads, MAX_SEQ_LENGTH, self.d_k) 
         
         attn_output = self.scaled_dot_product_attention(Q, K, V, mask)
         output = self.W_o(self.combine_heads(attn_output))
@@ -370,6 +369,7 @@ class MultiheadLatentAttention(nn.Module):
         
         # key-value latent
         self.W_dkv = nn.Linear(d_model, latent_dim)
+
         self.W_o = nn.Linear(latent_dim, d_model)
         self.scale = math.sqrt(self.d_k)
     
@@ -382,14 +382,12 @@ class MultiheadLatentAttention(nn.Module):
         queries_projected = self.W_uk(q_projected)  # [batch_size, seq_length, latent_dim]
         
         # transpose L_KV for attention computation
-        L_kv_t = L_kv.transpose(-1, -2) 
+        L_kv_t = L_kv.transpose(1, 2) 
         
         # Compute attention scores: Q*K^T / sqrt(d_k)
         attn_scores = torch.matmul(queries_projected, L_kv_t) / self.scale  # [batch_size, seq_length, seq_length]
         
         if mask is not None:
-            if mask.dim() == 4:
-                mask = mask.squeeze(1)  
             attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
         
         attn_weights = torch.softmax(attn_scores, dim=-1)  # [batch_size, seq_length, seq_length]
@@ -411,7 +409,7 @@ class EncoderLayerMLA(nn.Module):
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x, mask=None):
-        attn_output = self.self_attn(x, mask)
+        attn_output = self.self_attn(x, x, x, mask)
         x = self.norm1(x + self.dropout(attn_output))
         ff_output = self.feed_forward(x)
         x = self.norm2(x + self.dropout(ff_output))
@@ -425,7 +423,7 @@ class TransformerClassifierMLA(nn.Module):
         self.positional_encoding = PositionalEncoding(d_model, max_seq_length)
 
         self.encoder_layers = nn.ModuleList([
-            EncoderLayerMLA(d_model, num_heads, d_ff, latent_dim, dropout) 
+            EncoderLayerGQA(d_model, num_heads, d_ff, latent_dim, dropout) 
             for _ in range(num_layers)
         ])
         
@@ -448,10 +446,6 @@ class TransformerClassifierMLA(nn.Module):
         enc_output = src_embedded
         for enc_layer in self.encoder_layers:
             enc_output = enc_layer(enc_output, src_mask) 
-        
-        if enc_output.dim() == 4:
-            batch_size, dim1, seq_length, features = enc_output.shape
-            enc_output = enc_output.reshape(batch_size, seq_length, -1)
         
         pooled = self.pool(enc_output.transpose(1, 2)).squeeze(2)
         output = self.classifier(pooled)

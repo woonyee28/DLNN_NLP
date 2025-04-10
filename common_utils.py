@@ -10,7 +10,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 
 
-SAVE_DIR = "./result/"
+# SAVE_DIR = "./result/"
+
+SAVE_DIR =  "/content/drive/MyDrive/SC4001_Group_Assignment_2/dataset/result/"
+
 VOCAB_PATH = os.path.join(SAVE_DIR, "vocab.json")
 EMBEDDING_PATH = os.path.join(SAVE_DIR, "embedding_matrix.npy")
 EMBEDDING_DIM = 100
